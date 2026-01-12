@@ -5,15 +5,17 @@ import com.github.L_Ender.cataclysm.blocks.Boss_Respawn_Spawner_Block;
 import com.github.L_Ender.cataclysm.entity.AnimationMonster.BossMonsters.LLibrary_Boss_Monster;
 import com.github.L_Ender.cataclysm.entity.InternalAnimationMonster.IABossMonsters.IABoss_monster;
 import com.github.L_Ender.cataclysm.init.ModTileentites;
+
+// ★ 追加 import
+import com.github.L_Ender.cataclysm.init.ModEntities;
+import com.github.L_Ender.cataclysm.entity.InternalAnimationMonster.IABossMonsters.Ancient_Remnant.Ancient_Remnant_Entity;
+
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.NonNullList;
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.network.Connection;
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.util.RandomSource;
 import net.minecraft.world.Clearable;
 import net.minecraft.world.Container;
 import net.minecraft.world.Difficulty;
@@ -29,7 +31,6 @@ import net.minecraftforge.registries.ForgeRegistries;
 
 import javax.annotation.Nullable;
 import java.util.Objects;
-import java.util.function.Function;
 
 public class Boss_Respawn_Spawner_Block_Entity extends BlockEntity implements Clearable, ContainerSingleItem {
 	public int Animaitonticks;
@@ -41,7 +42,6 @@ public class Boss_Respawn_Spawner_Block_Entity extends BlockEntity implements Cl
 	private EntityType<?> spawnType = null;
 	protected boolean spawnedBoss = false;
 	private final NonNullList<ItemStack> item = NonNullList.withSize(this.getContainerSize(), ItemStack.EMPTY);
-
 
 	public Boss_Respawn_Spawner_Block_Entity(BlockPos pos, BlockState state) {
 		super(ModTileentites.BOSS_RESPAWNER.get(), pos, state);
@@ -75,15 +75,15 @@ public class Boss_Respawn_Spawner_Block_Entity extends BlockEntity implements Cl
 				++te.Animaitonticks;
 
 				if (level instanceof ServerLevel serverLevel) {
-						if (level.getDifficulty() != Difficulty.PEACEFUL) {
-							if (te.Animaitonticks >= 19) {
-								if (te.spawnMyBoss(serverLevel, pos)) {
-									level.destroyBlock(pos, false);
-									te.spawnedBoss = true;
-								}
+					if (level.getDifficulty() != Difficulty.PEACEFUL) {
+						if (te.Animaitonticks >= 19) {
+							if (te.spawnMyBoss(serverLevel, pos)) {
+								level.destroyBlock(pos, false);
+								te.spawnedBoss = true;
 							}
 						}
 					}
+				}
 
 			} else {
 				te.Animaitonticks = 0;
@@ -113,23 +113,55 @@ public class Boss_Respawn_Spawner_Block_Entity extends BlockEntity implements Cl
 				ResourceLocation dimLoc = serverLevel.dimension().location();
 				iaBossMonster.setDimensionType(dimLoc.toString());
 				iaBossMonster.setHomePos(BlockPos.containing(vec3));
-				// spawn it
 			} else if (entity instanceof LLibrary_Boss_Monster llBossMonster) {
 				llBossMonster.finalizeSpawn(serverLevel, serverLevel.getCurrentDifficultyAt(worldPosition), MobSpawnType.SPAWNER, null, null);
 				ResourceLocation dimLoc = serverLevel.dimension().location();
 				llBossMonster.setDimensionType(dimLoc.toString());
 				llBossMonster.setHomePos(BlockPos.containing(vec3));
 			}
-			return serverLevel.addFreshEntity(entity);
+
+			// ===== ここから追加 =====
+			boolean spawned = serverLevel.addFreshEntity(entity);
+
+			// Ancient Remnant のときだけ、Wadjet & Kobolediator も同時召喚
+			if (entity instanceof Ancient_Remnant_Entity) {
+				spawnExtraBoss(serverLevel, pos, ModEntities.WADJET.get(), 6, 0);
+				spawnExtraBoss(serverLevel, pos, ModEntities.KOBOLEDIATOR.get(), -6, 0);
+			}
+
+			return spawned;
+			// ===== ここまで追加 =====
 		}
 		return false;
 	}
 
+	// ★ 追加メソッド
+	private void spawnExtraBoss(ServerLevel level, BlockPos origin, EntityType<?> type, double xOffset, double zOffset) {
+		Entity e = type.create(level);
+		if (e != null) {
+			double x = origin.getX() + 0.5 + xOffset;
+			double y = origin.getY();
+			double z = origin.getZ() + 0.5 + zOffset;
+
+			e.moveTo(x, y, z, level.random.nextFloat() * 360F, 0);
+
+			if (e instanceof Mob mob) {
+				mob.finalizeSpawn(
+						level,
+						level.getCurrentDifficultyAt(origin),
+						MobSpawnType.SPAWNER,
+						null,
+						null
+				);
+			}
+
+			level.addFreshEntity(e);
+		}
+	}
 
 	protected int getRange() {
 		return SHORT_RANGE;
 	}
-
 
 	public ItemStack getItem(int p_273280_) {
 		return this.item.get(p_273280_);
@@ -197,13 +229,11 @@ public class Boss_Respawn_Spawner_Block_Entity extends BlockEntity implements Cl
 			this.spawnType = ForgeRegistries.ENTITY_TYPES.getValue(new ResourceLocation(str));
 		}
 
-
 		if (tag.contains("Item", 10)) {
 			this.item.set(0, ItemStack.of(tag.getCompound("Item")));
 		}
 		this.Animaitonticks = tag.getInt("animationTicks");
 	}
-
 
 	@Override
 	protected void saveAdditional(CompoundTag tag) {
@@ -216,13 +246,13 @@ public class Boss_Respawn_Spawner_Block_Entity extends BlockEntity implements Cl
 			tag.putString("EntityType", ForgeRegistries.ENTITY_TYPES.getKey(this.spawnType).toString());
 		}
 	}
+
 	public Entity getDisplayEntity(Level level) {
 		if (displayEntity == null && spawnType != null || displayEntity != null && displayEntity.getType() != spawnType) {
 			displayEntity = spawnType.create(level);
 		}
 		return displayEntity;
 	}
-
 
 	public boolean stillValid(Player p_273466_) {
 		return Container.stillValidBlockEntity(this, p_273466_);
